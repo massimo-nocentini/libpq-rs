@@ -1,9 +1,9 @@
 (function() {
-    var type_impls = Object.fromEntries([["libpq_rs",[]]]);
+    var type_impls = Object.fromEntries([["libpq",[]]]);
     if (window.register_type_impls) {
         window.register_type_impls(type_impls);
     } else {
         window.pending_type_impls = type_impls;
     }
 })()
-//{"start":55,"fragment_lengths":[15]}
+//{"start":55,"fragment_lengths":[12]}

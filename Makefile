@@ -12,3 +12,9 @@ doc:
 
 bindgen:
 	bindgen /opt/homebrew/opt/postgresql@18/include/postgresql/libpq-fe.h -o src/bindings.rs
+
+docker-build:
+	docker build -t ghcr.io/massimo-nocentini/libpq-rs:master .
+
+docker-run:
+	docker run -it --rm -e DATABASE_URL="postgres://db:db@host.docker.internal:5442/db" ghcr.io/massimo-nocentini/libpq-rs:master make test

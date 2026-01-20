@@ -1,4 +1,4 @@
-use std::{ffi::NulError};
+use std::ffi::NulError;
 
 include!("bindings.rs");
 
@@ -28,9 +28,17 @@ mod tests {
         unsafe {
             let conn_str = std::env::var("DATABASE_URL")
                 .expect("Env var DATABASE_URL is required for this example.");
-            
-            let conn = PGconn::from_str(&conn_str).expect("Failed to create PGconn from connection string.");
+
+            let conn = PGconn::from_str(&conn_str)
+                .expect("Failed to create PGconn from connection string.");
             assert_eq!(PQstatus(conn), ConnStatusType_CONNECTION_OK);
+        }
+    }
+
+    #[test]
+    fn lib_version() {
+        unsafe {
+            assert_eq!(PQlibVersion(), 180001);
         }
     }
 }

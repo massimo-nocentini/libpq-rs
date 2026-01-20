@@ -1,2 +1,2 @@
-window.ALL_CRATES = ["libpq_rs"];
-//{"start":21,"fragment_lengths":[10]}
+window.ALL_CRATES = ["libpq"];
+//{"start":21,"fragment_lengths":[7]}
