@@ -1534,7 +1534,7 @@ pub struct pg_cancel_conn {
 }
 pub type PGcancelConn = pg_cancel_conn;
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct pg_result {
     _unused: [u8; 0],
 }

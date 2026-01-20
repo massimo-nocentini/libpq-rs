@@ -1,7 +1,7 @@
 
-FROM rust:latest
+FROM rust:alpine
 
-RUN apt-get update && apt-get install -y libpq-dev build-essential libclang-dev && cargo install bindgen-cli
+RUN apk add postgresql-dev build-base
 
 WORKDIR /usr/src/libpq-rs
 
