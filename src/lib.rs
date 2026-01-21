@@ -97,14 +97,13 @@ impl PgResult {
         }
     }
 
-    fn error_field(&self, field_code: u8) -> String {
+    fn error_field(&self, field_code: u8) -> Option<String> {
         unsafe {
             let s = PQresultErrorField(self.res, field_code.into());
-
             if s.is_null() {
-                "".to_string()
+                None
             } else {
-                std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+                Some(std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned())
             }
         }
     }
@@ -135,7 +134,7 @@ mod tests {
 
         assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
         assert_eq!(res.error_message(), "");
-        assert_eq!(res.error_field(PG_DIAG_SEVERITY), "");
+        assert!(res.error_field(PG_DIAG_SEVERITY).is_none());
         assert_eq!(res.cmd_status(), "SELECT 1");
 
         assert_eq!(w.len(), 2);
