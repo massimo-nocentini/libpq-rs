@@ -24,13 +24,30 @@ impl PGconn {
         }
     }
 
-    fn set_notice_processor(
-        &mut self,
-        proc: Option<unsafe extern "C" fn(*mut std::os::raw::c_void, *const std::os::raw::c_char)>,
-        arg: *mut std::os::raw::c_void,
-    ) {
+    extern "C" fn recv<F>(arg: *mut c_void, data: *const c_char)
+    where
+        F: FnMut(String),
+    {
         unsafe {
-            PQsetNoticeProcessor(self, proc, arg);
+            let s = std::ffi::CStr::from_ptr(data)
+                .to_string_lossy()
+                .into_owned();
+
+            let f = &mut *(arg as *mut F);
+
+            f(s);
+        }
+    }
+
+    fn set_notice_processor<F>(&mut self, proc: F) -> Box<F>
+    where
+        F: FnMut(String),
+    {
+        unsafe {
+            let mut b = Box::new(proc);
+            let a = b.as_mut() as *mut F as *mut c_void;
+            PQsetNoticeProcessor(self, Some(Self::recv::<F>), a);
+            b
         }
     }
 }
@@ -69,19 +86,8 @@ impl PGresult {
 
 #[cfg(test)]
 mod tests {
-    use std::os::raw::{c_char, c_void};
 
     use super::*;
-
-    extern "C" fn recv(data: *mut c_void, b: *const c_char) {
-        unsafe {
-            let s = std::ffi::CStr::from_ptr(b).to_string_lossy().into_owned();
-
-            let notices: &mut Vec<String> = &mut *(data as *mut Vec<String>);
-
-            notices.push(s);
-        }
-    }
 
     #[test]
     fn it_works() {
@@ -92,40 +98,30 @@ mod tests {
             let conn = PGconn::from_str(&conn_str)
                 .expect("Failed to create PGconn from connection string.");
 
+            let conn_ref = conn.as_ref().unwrap();
+            let conn_ref_mut = conn.as_mut().unwrap();
+
             let mut w = Vec::new();
 
-            conn.as_mut()
-                .unwrap()
-                .set_notice_processor(Some(recv), &mut w as *mut Vec<String> as *mut c_void); //Vec::new().as_mut_ptr()
+            let _f = conn_ref_mut.set_notice_processor(|s| w.push(s));
 
-            assert_eq!(
-                conn.as_ref().unwrap().status(),
-                ConnStatusType_CONNECTION_OK
-            );
+            assert_eq!(conn_ref.status(), ConnStatusType_CONNECTION_OK);
 
-            assert_eq!(PQstatus(conn), ConnStatusType_CONNECTION_OK);
+            let query =
+                "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1;";
 
-            let query = "do $$ begin raise notice 'Hello, world!'; end $$; select 1;";
+            let res = conn_ref.exec(query).expect("Failed to execute query.");
+            let res_ref = res.as_ref().unwrap();
+            let res_ref_mut = res.as_mut().unwrap();
 
-            let res = conn
-                .as_ref()
-                .unwrap()
-                .exec(query)
-                .expect("Failed to execute query.");
+            assert_eq!(res_ref.status(), ExecStatusType_PGRES_TUPLES_OK);
+            assert_eq!(res_ref.error_message(), "");
+            assert_eq!(res_ref.error_field(PG_DIAG_SEVERITY), "");
+            assert_eq!(res_ref_mut.cmd_status(), "SELECT 1");
 
-            assert_eq!(
-                res.as_ref().unwrap().status(),
-                ExecStatusType_PGRES_TUPLES_OK
-            );
-
-            assert_eq!(res.as_mut().unwrap().cmd_status(), "SELECT 1");
-
-            assert_eq!(res.as_ref().unwrap().error_message(), "");
-
-            assert_eq!(res.as_ref().unwrap().error_field(PG_DIAG_SEVERITY), "");
-
-            assert_eq!(w.len(), 1);
-            assert_eq!(w[0], "NOTICE:  Hello, world!\n");
+            assert_eq!(w.len(), 2);
+            assert_eq!(w[0], "NOTICE:  Hello,\n");
+            assert_eq!(w[1], "NOTICE:  world!\n");
 
             PQclear(res);
             PQfinish(conn);
