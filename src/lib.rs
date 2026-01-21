@@ -6,7 +6,7 @@ use std::{
 include!("bindings.rs");
 
 impl PGconn {
-    fn from_str(s: &str) -> Result<*mut Self, NulError> {
+    fn connectdb(s: &str) -> Result<*mut Self, NulError> {
         unsafe {
             let conninfo = std::ffi::CString::new(s)?;
             Ok(PQconnectdb(conninfo.as_ptr()))
@@ -95,7 +95,7 @@ mod tests {
             let conn_str = std::env::var("DATABASE_URL")
                 .expect("Env var DATABASE_URL is required for this example.");
 
-            let conn = PGconn::from_str(&conn_str)
+            let conn = PGconn::connectdb(&conn_str)
                 .expect("Failed to create PGconn from connection string.");
 
             let conn_ref = conn.as_ref().unwrap();
@@ -103,7 +103,7 @@ mod tests {
 
             let mut w = Vec::new();
 
-            let _f = conn_ref_mut.set_notice_processor(|s| w.push(s));
+            let _w_pusher = conn_ref_mut.set_notice_processor(|s| w.push(s));
 
             assert_eq!(conn_ref.status(), ConnStatusType_CONNECTION_OK);
 
