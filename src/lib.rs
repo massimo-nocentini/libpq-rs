@@ -30,7 +30,7 @@ impl Drop for PgResult {
 }
 
 impl PgConn {
-    fn connectdb(s: &str) -> Result<PgConn, NulError> {
+    pub fn connect_db(s: &str) -> Result<PgConn, NulError> {
         unsafe {
             let conninfo = std::ffi::CString::new(s)?;
             let conn = PQconnectdb(conninfo.as_ptr());
@@ -38,11 +38,11 @@ impl PgConn {
         }
     }
 
-    fn status(&self) -> ConnStatusType {
+    pub fn status(&self) -> ConnStatusType {
         unsafe { PQstatus(self.conn) }
     }
 
-    fn exec(&self, query: &str) -> Result<PgResult, NulError> {
+    pub fn exec(&self, query: &str) -> Result<PgResult, NulError> {
         unsafe {
             let c_query = std::ffi::CString::new(query)?;
             let res = PQexec(self.conn, c_query.as_ptr());
@@ -65,7 +65,7 @@ impl PgConn {
         }
     }
 
-    fn set_notice_processor<F>(&mut self, proc: F) -> Box<F>
+    pub fn set_notice_processor<F>(&mut self, proc: F) -> Box<F>
     where
         F: FnMut(String),
     {
@@ -79,25 +79,25 @@ impl PgConn {
 }
 
 impl PgResult {
-    fn status(&self) -> ExecStatusType {
+    pub fn status(&self) -> ExecStatusType {
         unsafe { PQresultStatus(self.res) }
     }
 
-    fn cmd_status(&mut self) -> String {
+    pub fn cmd_status(&mut self) -> String {
         unsafe {
             let s = PQcmdStatus(self.res);
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
     }
 
-    fn error_message(&self) -> String {
+    pub fn error_message(&self) -> String {
         unsafe {
             let s = PQresultErrorMessage(self.res);
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
     }
 
-    fn error_field(&self, field_code: u8) -> Option<String> {
+    pub fn error_field(&self, field_code: u8) -> Option<String> {
         unsafe {
             let s = PQresultErrorField(self.res, field_code.into());
             if s.is_null() {
@@ -120,7 +120,7 @@ mod tests {
             .expect("Env var DATABASE_URL is required for this example.");
 
         let mut conn =
-            PgConn::connectdb(&conn_str).expect("Failed to create PGconn from connection string.");
+            PgConn::connect_db(&conn_str).expect("Failed to create PGconn from connection string.");
 
         let mut w = Vec::new();
 
