@@ -116,34 +116,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
-        unsafe {
-            let conn_str = std::env::var("DATABASE_URL")
-                .expect("Env var DATABASE_URL is required for this example.");
+    fn catch_notices() {
+        let conn_str = std::env::var("DATABASE_URL")
+            .expect("Env var DATABASE_URL is required for this example.");
 
-            let mut conn = PgConn::connectdb(&conn_str)
-                .expect("Failed to create PGconn from connection string.");
+        let mut conn =
+            PgConn::connectdb(&conn_str).expect("Failed to create PGconn from connection string.");
 
-            let mut w = Vec::new();
+        let mut w = Vec::new();
 
-            let _w_pusher = conn.set_notice_processor(|s| w.push(s));
+        let _w_pusher = conn.set_notice_processor(|s| w.push(s));
 
-            assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+        assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
-            let query =
-                "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1;";
+        let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1;";
 
-            let mut res = conn.exec(query).expect("Failed to execute query.");
+        let mut res = conn.exec(query).expect("Failed to execute query.");
 
-            assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
-            assert_eq!(res.error_message(), "");
-            assert_eq!(res.error_field(PG_DIAG_SEVERITY), "");
-            assert_eq!(res.cmd_status(), "SELECT 1");
+        assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+        assert_eq!(res.error_message(), "");
+        assert_eq!(res.error_field(PG_DIAG_SEVERITY), "");
+        assert_eq!(res.cmd_status(), "SELECT 1");
 
-            assert_eq!(w.len(), 2);
-            assert_eq!(w[0], "NOTICE:  Hello,\n");
-            assert_eq!(w[1], "NOTICE:  world!\n");
-        }
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0], "NOTICE:  Hello,\n");
+        assert_eq!(w[1], "NOTICE:  world!\n");
     }
 
     #[test]
