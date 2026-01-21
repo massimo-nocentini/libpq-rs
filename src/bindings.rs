@@ -1522,7 +1522,7 @@ pub const PGauthData_PQAUTHDATA_PROMPT_OAUTH_DEVICE: PGauthData = 0;
 pub const PGauthData_PQAUTHDATA_OAUTH_BEARER_TOKEN: PGauthData = 1;
 pub type PGauthData = ::std::os::raw::c_uint;
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct pg_conn {
     _unused: [u8; 0],
 }
@@ -1534,7 +1534,7 @@ pub struct pg_cancel_conn {
 }
 pub type PGcancelConn = pg_cancel_conn;
 #[repr(C)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct pg_result {
     _unused: [u8; 0],
 }

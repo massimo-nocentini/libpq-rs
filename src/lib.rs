@@ -50,7 +50,10 @@ impl PgConn {
         }
     }
 
-    extern "C" fn recv<F>(arg: *mut c_void, data: *const c_char)
+    ///
+    /// A callback function to receive notices from the server.
+    /// https://stackoverflow.com/questions/24191249/working-with-c-void-in-an-ffi
+    extern "C" fn ffi_notice_processor<F>(arg: *mut c_void, data: *const c_char)
     where
         F: FnMut(String),
     {
@@ -72,7 +75,37 @@ impl PgConn {
         unsafe {
             let mut b = Box::new(proc);
             let a = b.as_mut() as *mut F as *mut c_void;
-            PQsetNoticeProcessor(self.conn, Some(Self::recv::<F>), a);
+            PQsetNoticeProcessor(self.conn, Some(Self::ffi_notice_processor::<F>), a);
+            b
+        }
+    }
+
+    extern "C" fn ffi_notice_receiver<F>(arg: *mut c_void, data: *const PGresult)
+    where
+        F: FnMut(PgResult),
+    {
+        unsafe {
+            let s = PgResult {
+                res: data as *mut PGresult,
+            };
+
+            let f = &mut *(arg as *mut F);
+
+            f(s);
+        }
+    }
+
+    /// Sets a notice receiver function to receive notices from the server.
+    /// Notices are sent to the receiver after command execution is completed.
+    /// https://www.postgresql.org/docs/current/libpq-notice-processing.html
+    pub fn set_notice_receiver<F>(&mut self, proc: F) -> Box<F>
+    where
+        F: FnMut(PgResult),
+    {
+        unsafe {
+            let mut b = Box::new(proc);
+            let a = b.as_mut() as *mut F as *mut c_void;
+            PQsetNoticeReceiver(self.conn, Some(Self::ffi_notice_receiver::<F>), a);
             b
         }
     }
