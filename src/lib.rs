@@ -1,6 +1,9 @@
 use std::{
     ffi::NulError,
-    os::raw::{c_char, c_void},
+    os::{
+        fd::AsRawFd,
+        raw::{c_char, c_void},
+    },
 };
 
 include!("bindings.rs");
@@ -47,6 +50,21 @@ impl PgConn {
             let c_query = std::ffi::CString::new(query)?;
             let res = PQexec(self.conn, c_query.as_ptr());
             Ok(PgResult { res })
+        }
+    }
+
+    pub fn trace(&mut self, file: &mut std::fs::File) {
+        unsafe {
+            let mode = std::ffi::CString::new("w").unwrap();
+            let fd = file.as_raw_fd();
+            let fp = fdopen(fd, mode.as_ptr());
+            PQtrace(self.conn, fp);
+        }
+    }
+
+    pub fn untrace(&mut self) {
+        unsafe {
+            PQuntrace(self.conn);
         }
     }
 
@@ -154,6 +172,11 @@ mod tests {
 
         let mut conn =
             PgConn::connect_db(&conn_str).expect("Failed to create PGconn from connection string.");
+
+        let mut trace_file =
+            std::fs::File::create("trace.log").expect("Failed to create trace file.");
+
+        conn.trace(&mut trace_file);
 
         let mut w = Vec::new();
 
