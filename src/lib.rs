@@ -5,22 +5,48 @@ use std::{
 
 include!("bindings.rs");
 
-impl PGconn {
-    fn connectdb(s: &str) -> Result<*mut Self, NulError> {
+pub struct PgConn {
+    conn: *mut PGconn,
+}
+
+pub struct PgResult {
+    res: *mut PGresult,
+}
+
+impl Drop for PgConn {
+    fn drop(&mut self) {
+        unsafe {
+            PQfinish(self.conn);
+        }
+    }
+}
+
+impl Drop for PgResult {
+    fn drop(&mut self) {
+        unsafe {
+            PQclear(self.res);
+        }
+    }
+}
+
+impl PgConn {
+    fn connectdb(s: &str) -> Result<PgConn, NulError> {
         unsafe {
             let conninfo = std::ffi::CString::new(s)?;
-            Ok(PQconnectdb(conninfo.as_ptr()))
+            let conn = PQconnectdb(conninfo.as_ptr());
+            Ok(PgConn { conn })
         }
     }
 
     fn status(&self) -> ConnStatusType {
-        unsafe { PQstatus(self) }
+        unsafe { PQstatus(self.conn) }
     }
 
-    fn exec(&self, query: &str) -> Result<*mut PGresult, NulError> {
+    fn exec(&self, query: &str) -> Result<PgResult, NulError> {
         unsafe {
             let c_query = std::ffi::CString::new(query)?;
-            Ok(PQexec(self as *const _ as *mut _, c_query.as_ptr()))
+            let res = PQexec(self.conn, c_query.as_ptr());
+            Ok(PgResult { res })
         }
     }
 
@@ -46,34 +72,34 @@ impl PGconn {
         unsafe {
             let mut b = Box::new(proc);
             let a = b.as_mut() as *mut F as *mut c_void;
-            PQsetNoticeProcessor(self, Some(Self::recv::<F>), a);
+            PQsetNoticeProcessor(self.conn, Some(Self::recv::<F>), a);
             b
         }
     }
 }
 
-impl PGresult {
+impl PgResult {
     fn status(&self) -> ExecStatusType {
-        unsafe { PQresultStatus(self) }
+        unsafe { PQresultStatus(self.res) }
     }
 
     fn cmd_status(&mut self) -> String {
         unsafe {
-            let s = PQcmdStatus(self);
+            let s = PQcmdStatus(self.res);
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
     }
 
     fn error_message(&self) -> String {
         unsafe {
-            let s = PQresultErrorMessage(self);
+            let s = PQresultErrorMessage(self.res);
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
     }
 
     fn error_field(&self, field_code: u8) -> String {
         unsafe {
-            let s = PQresultErrorField(self, field_code.into());
+            let s = PQresultErrorField(self.res, field_code.into());
 
             if s.is_null() {
                 "".to_string()
@@ -95,36 +121,28 @@ mod tests {
             let conn_str = std::env::var("DATABASE_URL")
                 .expect("Env var DATABASE_URL is required for this example.");
 
-            let conn = PGconn::connectdb(&conn_str)
+            let mut conn = PgConn::connectdb(&conn_str)
                 .expect("Failed to create PGconn from connection string.");
-
-            let conn_ref = conn.as_ref().unwrap();
-            let conn_ref_mut = conn.as_mut().unwrap();
 
             let mut w = Vec::new();
 
-            let _w_pusher = conn_ref_mut.set_notice_processor(|s| w.push(s));
+            let _w_pusher = conn.set_notice_processor(|s| w.push(s));
 
-            assert_eq!(conn_ref.status(), ConnStatusType_CONNECTION_OK);
+            assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
             let query =
                 "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1;";
 
-            let res = conn_ref.exec(query).expect("Failed to execute query.");
-            let res_ref = res.as_ref().unwrap();
-            let res_ref_mut = res.as_mut().unwrap();
+            let mut res = conn.exec(query).expect("Failed to execute query.");
 
-            assert_eq!(res_ref.status(), ExecStatusType_PGRES_TUPLES_OK);
-            assert_eq!(res_ref.error_message(), "");
-            assert_eq!(res_ref.error_field(PG_DIAG_SEVERITY), "");
-            assert_eq!(res_ref_mut.cmd_status(), "SELECT 1");
+            assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+            assert_eq!(res.error_message(), "");
+            assert_eq!(res.error_field(PG_DIAG_SEVERITY), "");
+            assert_eq!(res.cmd_status(), "SELECT 1");
 
             assert_eq!(w.len(), 2);
             assert_eq!(w[0], "NOTICE:  Hello,\n");
             assert_eq!(w[1], "NOTICE:  world!\n");
-
-            PQclear(res);
-            PQfinish(conn);
         }
     }
 
