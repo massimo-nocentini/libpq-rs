@@ -1522,7 +1522,7 @@
 <a href=#1522 id=1522 data-nosnippet>1522</a><span class="kw">pub const </span>PGauthData_PQAUTHDATA_OAUTH_BEARER_TOKEN: PGauthData = <span class="number">1</span>;
 <a href=#1523 id=1523 data-nosnippet>1523</a><span class="kw">pub type </span>PGauthData = ::std::os::raw::c_uint;
 <a href=#1524 id=1524 data-nosnippet>1524</a><span class="attr">#[repr(C)]
-<a href=#1525 id=1525 data-nosnippet>1525</a>#[derive(Debug, Clone)]
+<a href=#1525 id=1525 data-nosnippet>1525</a>#[derive(Debug, Copy, Clone)]
 <a href=#1526 id=1526 data-nosnippet>1526</a></span><span class="kw">pub struct </span>pg_conn {
 <a href=#1527 id=1527 data-nosnippet>1527</a>    _unused: [u8; <span class="number">0</span>],
 <a href=#1528 id=1528 data-nosnippet>1528</a>}
@@ -1534,7 +1534,7 @@
 <a href=#1534 id=1534 data-nosnippet>1534</a>}
 <a href=#1535 id=1535 data-nosnippet>1535</a><span class="kw">pub type </span>PGcancelConn = pg_cancel_conn;
 <a href=#1536 id=1536 data-nosnippet>1536</a><span class="attr">#[repr(C)]
-<a href=#1537 id=1537 data-nosnippet>1537</a>#[derive(Debug, Clone)]
+<a href=#1537 id=1537 data-nosnippet>1537</a>#[derive(Debug, Copy, Clone)]
 <a href=#1538 id=1538 data-nosnippet>1538</a></span><span class="kw">pub struct </span>pg_result {
 <a href=#1539 id=1539 data-nosnippet>1539</a>    _unused: [u8; <span class="number">0</span>],
 <a href=#1540 id=1540 data-nosnippet>1540</a>}

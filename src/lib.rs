@@ -33,6 +33,10 @@ impl Drop for PgResult {
 }
 
 impl PgConn {
+
+    /// Connect to the database using environment variables.
+    /// 
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-envars.html).
     pub fn connect_db_env_vars() -> Result<PgConn, NulError> {
         Self::connect_db("")
     }
@@ -80,6 +84,7 @@ impl PgConn {
     ///
     /// A callback function to receive notices from the server.
     /// https://stackoverflow.com/questions/24191249/working-with-c-void-in-an-ffi
+    /// https://adventures.michaelfbryan.com/posts/rust-closures-in-ffi/
     extern "C" fn ffi_notice_processor<F>(arg: *mut c_void, data: *const c_char)
     where
         F: FnMut(String),

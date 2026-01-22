@@ -1,0 +1,1 @@
+rd_("iNo value.0000BbSome value of type <code>T</code>.0000AoReturns the argument unchanged.000000000000000000000000000BaCalls <code>U::from(self)</code>.000000000000000000000000000CdConnect to the database using environment variables.CkSets a notice receiver function to receive notices from \xe2\x80\xa6CkA callback function to receive notices from the server. \xe2\x80\xa6")
