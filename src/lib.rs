@@ -1,10 +1,14 @@
 use std::{
     ffi::NulError,
+    fmt::Display,
+    io::{Read, Seek},
     os::{
         fd::AsRawFd,
         raw::{c_char, c_void},
     },
 };
+
+use tempfile::tempfile;
 
 include!("bindings.rs");
 
@@ -33,9 +37,8 @@ impl Drop for PgResult {
 }
 
 impl PgConn {
-
     /// Connect to the database using environment variables.
-    /// 
+    ///
     /// See the [official doc](https://www.postgresql.org/docs/current/libpq-envars.html).
     pub fn connect_db_env_vars() -> Result<PgConn, NulError> {
         Self::connect_db("")
@@ -172,6 +175,43 @@ impl PgResult {
             }
         }
     }
+
+    pub fn print(&self) -> String {
+        let mut tmpfile = tempfile().expect("Failed to create temp file.");
+        // let mut tmpfile = std::fs::File::create("out.log").expect("Failed to create temp file.");
+
+        // let printopt = PQprintOpt {
+        //     header: 1,
+        //     align: 1,
+        //     fieldSep: std::ptr::null_mut(),
+        //     tableOpt: std::ptr::null_mut(),
+        //     caption: std::ptr::null_mut(),
+        //     standard: 0,
+        //     html3: 0,
+        //     expanded: 0,
+        //     pager: 0,
+        //     fieldName: std::ptr::null_mut(),
+        // };
+
+        let fd = tmpfile.as_raw_fd();
+
+        unsafe {
+            let fp = fdopen(fd, std::ffi::CString::new("w").unwrap().as_ptr());
+            PQprint(fp, self.res, std::ptr::null());
+        }
+
+        tmpfile
+            .seek(std::io::SeekFrom::Start(0))
+            .expect("Failed to seek temp file.");
+
+        let mut contents = String::new();
+
+        tmpfile
+            .read_to_string(&mut contents)
+            .expect("Failed to read temp file.");
+
+        contents
+    }
 }
 
 #[cfg(test)]
@@ -199,8 +239,10 @@ mod tests {
         assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
         let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1;";
+        // let query = "select 1 + 1 as sum;";
 
         let mut res = conn.exec(query).expect("Failed to execute query.");
+        // println!("Res:\n{}", res.print());
 
         assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
         assert_eq!(res.error_message(), "");
@@ -210,6 +252,7 @@ mod tests {
         assert_eq!(w.len(), 2);
         assert_eq!(w[0], "NOTICE:  Hello,\n");
         assert_eq!(w[1], "NOTICE:  world!\n");
+
     }
 
     #[test]
