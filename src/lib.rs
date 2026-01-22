@@ -9,11 +9,11 @@ use std::{
 include!("bindings.rs");
 
 pub struct PgConn {
-    conn: *mut PGconn,
+    pub conn: *mut PGconn,
 }
 
 pub struct PgResult {
-    res: *mut PGresult,
+    pub res: *mut PGresult,
 }
 
 impl Drop for PgConn {
@@ -33,6 +33,10 @@ impl Drop for PgResult {
 }
 
 impl PgConn {
+    pub fn connect_db_env_vars() -> Result<PgConn, NulError> {
+        Self::connect_db("")
+    }
+
     pub fn connect_db(s: &str) -> Result<PgConn, NulError> {
         unsafe {
             let conninfo = std::ffi::CString::new(s)?;
@@ -51,6 +55,11 @@ impl PgConn {
             let res = PQexec(self.conn, c_query.as_ptr());
             Ok(PgResult { res })
         }
+    }
+
+    pub fn exec_file(&self, file_path: &str) -> Result<PgResult, NulError> {
+        let content = std::fs::read_to_string(file_path).expect("Failed to read file.");
+        self.exec(&content)
     }
 
     pub fn trace(&mut self, file: &mut std::fs::File) {
@@ -167,11 +176,11 @@ mod tests {
 
     #[test]
     fn catch_notices() {
-        let conn_str = std::env::var("DATABASE_URL")
-            .expect("Env var DATABASE_URL is required for this example.");
+        // let conn_str = std::env::var("DATABASE_URL")
+        //     .expect("Env var DATABASE_URL is required for this example.");
 
         let mut conn =
-            PgConn::connect_db(&conn_str).expect("Failed to create PGconn from connection string.");
+            PgConn::connect_db("").expect("Failed to create PGconn from connection string.");
 
         let mut trace_file =
             std::fs::File::create("trace.log").expect("Failed to create trace file.");
