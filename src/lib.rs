@@ -1,14 +1,17 @@
 use std::{
-    ffi::NulError,
+    ffi::{CStr, CString, NulError},
     fmt::Display,
-    io::{Read, Seek},
+    fs::{self, File},
+    io::{Read, Seek, Write},
     os::{
-        fd::AsRawFd,
+        fd::{AsRawFd, FromRawFd},
         raw::{c_char, c_void},
     },
+    path::PathBuf,
+    ptr::{null, null_mut},
 };
 
-use tempfile::tempfile;
+use tempfile::{Builder, NamedTempFile, TempDir, tempfile};
 
 include!("bindings.rs");
 
@@ -176,41 +179,75 @@ impl PgResult {
         }
     }
 
-    pub fn print(&self) -> String {
-        let mut tmpfile = tempfile().expect("Failed to create temp file.");
-        // let mut tmpfile = std::fs::File::create("out.log").expect("Failed to create temp file.");
-
-        // let printopt = PQprintOpt {
-        //     header: 1,
-        //     align: 1,
-        //     fieldSep: std::ptr::null_mut(),
-        //     tableOpt: std::ptr::null_mut(),
-        //     caption: std::ptr::null_mut(),
-        //     standard: 0,
-        //     html3: 0,
-        //     expanded: 0,
-        //     pager: 0,
-        //     fieldName: std::ptr::null_mut(),
-        // };
-
-        let fd = tmpfile.as_raw_fd();
-
+    pub fn print(
+        &self,
+        filename: &str,
+        header: bool,
+        align: bool,
+        fieldsep: &str,
+        standard: bool,
+        html3: bool,
+        expanded: bool,
+        pager: bool,
+    ) {
         unsafe {
-            let fp = fdopen(fd, std::ffi::CString::new("w").unwrap().as_ptr());
-            PQprint(fp, self.res, std::ptr::null());
+            let sep = CString::new(fieldsep).unwrap();
+
+            let printopt = PQprintOpt {
+                header: header.into(),
+                align: align.into(),
+                fieldSep: sep.as_ptr() as *mut c_char,
+                tableOpt: null_mut(),
+                caption: null_mut(),
+                standard: standard.into(),
+                html3: html3.into(),
+                expanded: expanded.into(),
+                pager: pager.into(),
+                fieldName: null_mut(),
+            };
+
+            let fp = fopen(
+                CString::new(filename).unwrap().as_ptr(),
+                CString::new("w").unwrap().as_ptr(),
+            );
+
+            PQprint(fp, self.res, &printopt);
+
+            assert_eq!(fflush(fp), 0);
+            assert_eq!(fclose(fp), 0);
         }
+    }
+}
 
-        tmpfile
+impl ToString for PgResult {
+    fn to_string(&self) -> String {
+        let mut temp_file = Builder::new()
+            .prefix("pg-res-")
+            .suffix(".json")
+            .tempfile()
+            .unwrap();
+
+        let temp_path = temp_file.path().to_path_buf();
+
+        self.print(
+            temp_path.as_path().to_str().unwrap(),
+            true,
+            true,
+            "|",
+            true,
+            false,
+            false,
+            false,
+        );
+
+        let mut s = String::new();
+        temp_file
             .seek(std::io::SeekFrom::Start(0))
-            .expect("Failed to seek temp file.");
-
-        let mut contents = String::new();
-
-        tmpfile
-            .read_to_string(&mut contents)
+            .expect("Failed to seek to start of temp file.");
+        temp_file
+            .read_to_string(&mut s)
             .expect("Failed to read temp file.");
-
-        contents
+        s
     }
 }
 
@@ -221,11 +258,8 @@ mod tests {
 
     #[test]
     fn catch_notices() {
-        // let conn_str = std::env::var("DATABASE_URL")
-        //     .expect("Env var DATABASE_URL is required for this example.");
-
         let mut conn =
-            PgConn::connect_db("").expect("Failed to create PGconn from connection string.");
+            PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
 
         let mut trace_file =
             std::fs::File::create("trace.log").expect("Failed to create trace file.");
@@ -238,11 +272,15 @@ mod tests {
 
         assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
-        let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1;";
-        // let query = "select 1 + 1 as sum;";
+        let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1 as one, 2 as two;";
 
         let mut res = conn.exec(query).expect("Failed to execute query.");
-        // println!("Res:\n{}", res.print());
+
+        res.print("res.out", true, true, "|", true, false, false, false);
+
+        let s = fs::read_to_string("res.out").expect("Should have been able to read the file");
+
+        assert_eq!(res.to_string(), s);
 
         assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
         assert_eq!(res.error_message(), "");
@@ -252,7 +290,6 @@ mod tests {
         assert_eq!(w.len(), 2);
         assert_eq!(w[0], "NOTICE:  Hello,\n");
         assert_eq!(w[1], "NOTICE:  world!\n");
-
     }
 
     #[test]

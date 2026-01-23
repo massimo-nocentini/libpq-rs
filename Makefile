@@ -4,7 +4,7 @@ build:
 
 test:
 # 	DATABASE_URL="postgres://db:db@host.docker.internal:5442/db" cargo test --release -- --nocapture
-	PGHOST=localhost PGPORT=5442 PGDATABASE=db PGUSER=db PGPASSWORD=db cargo test --release --lib -- --nocapture
+	RUST_BACKTRACE=1 PGHOST=localhost PGPORT=5442 PGDATABASE=db PGUSER=db PGPASSWORD=db cargo test --release --lib -- --nocapture
 	
 doc:
 	cargo doc --document-private-items --release
