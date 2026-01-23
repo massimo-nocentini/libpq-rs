@@ -72,12 +72,13 @@ impl PgConn {
         self.exec(&content)
     }
 
-    pub fn trace(&mut self, file: &mut std::fs::File) {
+    pub fn trace(&mut self, file: &str) {
         unsafe {
+            let c_file = std::ffi::CString::new(file).unwrap();
             let mode = std::ffi::CString::new("w").unwrap();
-            let fd = file.as_raw_fd();
-            let fp = fdopen(fd, mode.as_ptr());
+            let fp = fopen(c_file.as_ptr(), mode.as_ptr());
             PQtrace(self.conn, fp);
+            assert_eq!(fflush(fp), 0);
         }
     }
 
@@ -261,10 +262,7 @@ mod tests {
         let mut conn =
             PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
 
-        let mut trace_file =
-            std::fs::File::create("trace.log").expect("Failed to create trace file.");
-
-        conn.trace(&mut trace_file);
+        conn.trace("trace.log");
 
         let mut w = Vec::new();
 
