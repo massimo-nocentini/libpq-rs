@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["bitflags",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"struct\" href=\"bitflags/parser/struct.ParseError.html\" title=\"struct bitflags::parser::ParseError\">ParseError</a>"]]],["errno",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"struct\" href=\"errno/struct.Errno.html\" title=\"struct errno::Errno\">Errno</a>"]]],["rustix",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"struct\" href=\"rustix/io/struct.Errno.html\" title=\"struct rustix::io::Errno\">Errno</a>"]]],["tempfile",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"struct\" href=\"tempfile/struct.PathPersistError.html\" title=\"struct tempfile::PathPersistError\">PathPersistError</a>"],["impl&lt;F&gt; <a class=\"trait\" href=\"https://doc.rust-lang.org/1.92.0/core/error/trait.Error.html\" title=\"trait core::error::Error\">Error</a> for <a class=\"struct\" href=\"tempfile/struct.PersistError.html\" title=\"struct tempfile::PersistError\">PersistError</a>&lt;F&gt;"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[290,252,262,579]}

@@ -180,6 +180,8 @@ impl PgResult {
         }
     }
 
+    /// Print the result to a file.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQPRINT
     pub fn print(
         &self,
         filename: &str,
@@ -216,6 +218,19 @@ impl PgResult {
 
             assert_eq!(fflush(fp), 0);
             assert_eq!(fclose(fp), 0);
+        }
+    }
+
+    /// Get the value at the specified row and column.
+    /// See also [PQgetvalue](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQGETVALUE).
+    pub fn get_value(&self, row: i32, col: i32) -> String {
+        unsafe {
+            let s = PQgetvalue(self.res, row, col);
+            if s.is_null() {
+                "".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+            }
         }
     }
 }
