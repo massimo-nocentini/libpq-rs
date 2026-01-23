@@ -220,8 +220,8 @@ impl PgResult {
     }
 }
 
-impl ToString for PgResult {
-    fn to_string(&self) -> String {
+impl Display for PgResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut temp_file = Builder::new()
             .prefix("pg-res-")
             .suffix(".json")
@@ -248,7 +248,8 @@ impl ToString for PgResult {
         temp_file
             .read_to_string(&mut s)
             .expect("Failed to read temp file.");
-        s
+
+        write!(f, "{}", s)
     }
 }
 
@@ -275,6 +276,8 @@ mod tests {
         let mut res = conn.exec(query).expect("Failed to execute query.");
 
         res.print("res.out", true, true, "|", true, false, false, false);
+
+        println!("Result:\n{}", res);
 
         let s = fs::read_to_string("res.out").expect("Should have been able to read the file");
 
