@@ -1,7 +1,8 @@
 
-FROM rust:alpine
+FROM alpine:latest
 
-RUN apk add postgresql-dev build-base
+RUN apk add --no-cache rust cargo musl-dev libpq-dev build-base
+# RUN apt update && apt upgrade -y #&& apt install libpq-dev build-essential
 
 WORKDIR /usr/src/libpq-rs
 

@@ -1,17 +1,12 @@
 use std::{
-    ffi::{CStr, CString, NulError},
+    ffi::{CString, NulError},
     fmt::Display,
-    fs::{self, File},
-    io::{Read, Seek, Write},
-    os::{
-        fd::{AsRawFd, FromRawFd},
-        raw::{c_char, c_void},
-    },
-    path::PathBuf,
-    ptr::{null, null_mut},
+    io::{Read, Seek},
+    os::raw::{c_char, c_void},
+    ptr::null_mut,
 };
 
-use tempfile::{Builder, NamedTempFile, TempDir, tempfile};
+use tempfile::Builder;
 
 include!("bindings.rs");
 
@@ -270,6 +265,8 @@ impl Display for PgResult {
 
 #[cfg(test)]
 mod tests {
+
+    use std::fs;
 
     use super::*;
 

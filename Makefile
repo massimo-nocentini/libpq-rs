@@ -6,6 +6,9 @@ test:
 # 	DATABASE_URL="postgres://db:db@host.docker.internal:5442/db" cargo test --release -- --nocapture
 	RUST_BACKTRACE=1 PGHOST=localhost PGPORT=5442 PGDATABASE=db PGUSER=db PGPASSWORD=db cargo test --release --lib -- --nocapture
 	
+test-docker:
+	RUST_BACKTRACE=1 cargo test --release --lib -- --nocapture
+
 doc:
 	cargo doc --document-private-items --release
 	rm -rf docs && mv target/doc docs
@@ -18,4 +21,4 @@ docker-build:
 
 docker-run:
 # 	docker run -it --rm -e DATABASE_URL="postgres://db:db@host.docker.internal:5442/db" ghcr.io/massimo-nocentini/libpq-rs:master make test
-	docker run -it --rm -e PGHOST=host.docker.internal -e PGPORT=5442 -e PGDATABASE=db -e PGUSER=db -e PGPASSWORD=db ghcr.io/massimo-nocentini/libpq-rs:master make test
+	docker run -it --rm -e PGHOST=host.docker.internal -e PGPORT=5442 -e PGDATABASE=db -e PGUSER=db -e PGPASSWORD=db ghcr.io/massimo-nocentini/libpq-rs:master #make test-docker
