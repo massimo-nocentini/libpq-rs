@@ -1,4 +1,3 @@
-use core::time;
 use std::{
     ffi::{CString, NulError},
     fmt::Display,
@@ -65,10 +64,13 @@ impl PgSocket {
         }
     }
 }
-
 pub struct PgConn {
     conn: *mut PGconn,
 }
+
+unsafe impl Send for PgConn {}
+
+unsafe impl Sync for PgConn {}
 
 pub struct PgResult {
     res: *mut PGresult,
@@ -272,44 +274,31 @@ impl PgConn {
         }
     }
 
-    // pub fn listen<F, T>(&mut self, channel: &str, proc: F) -> JoinHandle<Vec<T>>
-    // where
-    //     F: FnMut(PgNotify) -> T + Send + Sync + 'static,
-    //     T: Send + Sync + 'static,
-    // {
-    //     let mut f = Arc::new(proc);
-    //     thread::spawn(move || {
-    //         let mut conn = PgConn::connect_db_env_vars()
-    //             .expect("Failed to create PGconn from connection string.");
+    pub fn listen<F, T>(&mut self, timeout_sec: Option<f64>, proc: F) -> Vec<T>
+    where
+        F: Fn(PgNotify) -> T,
+    {
+        let mut recvs = Vec::new();
 
-    //         assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+        loop {
+            match self.socket().poll(true, false, timeout_sec) {
+                Ok(()) => {
+                    self.consume_input().expect("Failed to consume input.");
 
-    //         {
-    //             let res = conn.exec("LISTEN TBL2").expect("Failed to execute LISTEN.");
-    //             assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
-    //         }
+                    while let Some(notify) = self.notifies() {
+                        let p = proc(notify);
+                        
+                        recvs.push(p);
 
-    //         let mut recvs = Vec::new();
+                        self.consume_input().expect("Failed to consume input.");
+                    }
+                }
+                Err(_e) => break,
+            }
+        }
 
-    //         for _ in 0..5 {
-    //             match conn.socket().poll(true, false, Some(10.0)) {
-    //                 Ok(()) => {
-    //                     conn.consume_input().expect("Failed to consume input.");
-
-    //                     while let Some(notify) = conn.notifies() {
-    //                         let t = f(notify);
-    //                         recvs.push(t);
-
-    //                         conn.consume_input().expect("Failed to consume input.");
-    //                     }
-    //                 }
-    //                 Err(_e) => break,
-    //             }
-    //         }
-
-    //         recvs
-    //     })
-    // }
+        recvs
+    }
 }
 
 impl PgResult {

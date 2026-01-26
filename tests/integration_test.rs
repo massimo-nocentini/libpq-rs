@@ -114,3 +114,40 @@ fn listen_notify() {
     assert_eq!(recvs.len(), 5);
     assert_eq!(recvs, vec!["tbl2", "tbl2", "tbl2", "tbl2", "tbl2"]);
 }
+
+#[test]
+fn listen_notify_api() {
+    let handle = thread::spawn(|| {
+        let mut conn =
+            PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+        assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+        {
+            let res = conn.exec("LISTEN TBL3").expect("Failed to execute LISTEN.");
+            assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+        }
+
+        conn.listen(Some(1.0), |notify| notify.relname())
+    });
+
+    // Give the listener a moment to set up.
+    thread::sleep(std::time::Duration::from_millis(100));
+
+    // Now send some NOTIFY messages.
+
+    let conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    for _ in 0..5 {
+        let res = conn.exec("NOTIFY TBL3").expect("Failed to execute NOTIFY.");
+        assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+    }
+
+    let recvs = handle.join().expect("Thread panicked.");
+
+    assert_eq!(recvs.len(), 5);
+    assert_eq!(recvs, vec!["tbl3", "tbl3", "tbl3", "tbl3", "tbl3"]);
+}
