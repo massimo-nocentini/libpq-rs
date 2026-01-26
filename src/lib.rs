@@ -2,6 +2,7 @@ use std::{
     ffi::{CString, NulError},
     fmt::Display,
     io::{Read, Seek},
+    ops::ControlFlow,
     os::raw::{c_char, c_void},
     ptr::null_mut,
     sync::Arc,
@@ -276,9 +277,11 @@ impl PgConn {
 
     pub fn listen<F, T>(&mut self, timeout_sec: Option<f64>, proc: F) -> Vec<T>
     where
-        F: Fn(PgNotify) -> T,
+        F: Fn(usize, PgNotify) -> ControlFlow<(), T>,
     {
         let mut recvs = Vec::new();
+
+        let mut count = 0;
 
         loop {
             match self.socket().poll(true, false, timeout_sec) {
@@ -286,11 +289,14 @@ impl PgConn {
                     self.consume_input().expect("Failed to consume input.");
 
                     while let Some(notify) = self.notifies() {
-                        let p = proc(notify);
-                        
-                        recvs.push(p);
-
+                        match proc(count, notify) {
+                            ControlFlow::Continue(p) => recvs.push(p),
+                            ControlFlow::Break(()) => {
+                                break;
+                            }
+                        }
                         self.consume_input().expect("Failed to consume input.");
+                        count += 1;
                     }
                 }
                 Err(_e) => break,

@@ -1,4 +1,4 @@
-use std::{fs, thread};
+use std::{fs, ops::ControlFlow, thread};
 
 use libpq::{
     ConnStatusType_CONNECTION_OK, ExecStatusType_PGRES_COMMAND_OK, ExecStatusType_PGRES_TUPLES_OK,
@@ -128,7 +128,9 @@ fn listen_notify_api() {
             assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
         }
 
-        conn.listen(Some(1.0), |notify| notify.relname())
+        conn.listen(Some(1.0), |_i, notify| {
+            ControlFlow::Continue(notify.relname())
+        })
     });
 
     // Give the listener a moment to set up.
