@@ -275,7 +275,7 @@ mod tests {
         let mut conn =
             PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
 
-        conn.trace("trace.log");
+        conn.trace("./test-out/trace.log");
 
         let mut w = Vec::new();
 
@@ -287,11 +287,9 @@ mod tests {
 
         let mut res = conn.exec(query).expect("Failed to execute query.");
 
-        res.print("res.out", true, true, "|", true, false, false, false);
+        res.print("./test-out/res.out", true, true, "|", true, false, false, false);
 
-        println!("Result:\n{}", res);
-
-        let s = fs::read_to_string("res.out").expect("Should have been able to read the file");
+        let s = fs::read_to_string("./test-out/res.out").expect("Should have been able to read the file");
 
         assert_eq!(res.to_string(), s);
 

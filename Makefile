@@ -21,4 +21,4 @@ docker-build:
 
 docker-run:
 # 	docker run -it --rm -e DATABASE_URL="postgres://db:db@host.docker.internal:5442/db" ghcr.io/massimo-nocentini/libpq-rs:master make test
-	docker run -it --rm -e PGHOST=host.docker.internal -e PGPORT=5442 -e PGDATABASE=db -e PGUSER=db -e PGPASSWORD=db ghcr.io/massimo-nocentini/libpq-rs:master #make test-docker
+	docker run -it --rm -v ./test-out:/usr/src/libpq-rs/test-out -e PGHOST=host.docker.internal -e PGPORT=5442 -e PGDATABASE=db -e PGUSER=db -e PGPASSWORD=db ghcr.io/massimo-nocentini/libpq-rs:master make test-docker
