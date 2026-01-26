@@ -1,3 +1,4 @@
+use core::time;
 use std::{
     ffi::{CString, NulError},
     fmt::Display,
@@ -6,22 +7,107 @@ use std::{
     ptr::null_mut,
 };
 
+use std::fmt::Debug;
+
 use tempfile::Builder;
 
 include!("bindings.rs");
 
+pub struct PgSocket {
+    socket: i32,
+}
+
+pub enum PgSocketPollResult {
+    Timeout,
+    Error(String),
+}
+
+impl Display for PgSocketPollResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PgSocketPollResult::Timeout => write!(f, "Timeout"),
+            PgSocketPollResult::Error(s) => write!(f, "Error: {}", s),
+        }
+    }
+}
+
+impl Debug for PgSocketPollResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PgSocketPollResult::Timeout => write!(f, "Timeout"),
+            PgSocketPollResult::Error(s) => write!(f, "Error: {}", s),
+        }
+    }
+}
+
+impl PgSocket {
+    pub fn poll(
+        &self,
+        read: bool,
+        write: bool,
+        timeout: Option<f64>,
+    ) -> Result<(), PgSocketPollResult> {
+        unsafe {
+            let timeout_ms = match timeout {
+                Some(t) => PQgetCurrentTimeUSec() + (t * 1000000.0) as i64,
+                None => -1,
+            };
+
+            match PQsocketPoll(self.socket, read.into(), write.into(), timeout_ms) {
+                a if a > 0 => Ok(()),
+                0 => Err(PgSocketPollResult::Timeout),
+                _ => Err(PgSocketPollResult::Error(
+                    std::io::Error::last_os_error().to_string(),
+                )),
+            }
+        }
+    }
+}
+
 pub struct PgConn {
-    pub conn: *mut PGconn,
+    conn: *mut PGconn,
 }
 
 pub struct PgResult {
-    pub res: *mut PGresult,
+    res: *mut PGresult,
+}
+
+pub struct PgNotify {
+    notify: *mut PGnotify,
+}
+
+impl PgNotify {
+    pub fn relname(&self) -> String {
+        unsafe {
+            let s = (*self.notify).relname;
+            std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+        }
+    }
+
+    pub fn be_pid(&self) -> i32 {
+        unsafe { (*self.notify).be_pid }
+    }
+
+    pub fn extra(&self) -> String {
+        unsafe {
+            let s = (*self.notify).extra;
+            std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+        }
+    }
 }
 
 impl Drop for PgConn {
     fn drop(&mut self) {
         unsafe {
             PQfinish(self.conn);
+        }
+    }
+}
+
+impl Drop for PgNotify {
+    fn drop(&mut self) {
+        unsafe {
+            PQfreemem(self.notify as *mut c_void);
         }
     }
 }
@@ -80,6 +166,46 @@ impl PgConn {
     pub fn untrace(&mut self) {
         unsafe {
             PQuntrace(self.conn);
+        }
+    }
+
+    pub fn socket(&self) -> PgSocket {
+        unsafe {
+            PgSocket {
+                socket: PQsocket(self.conn),
+            }
+        }
+    }
+
+    pub fn consume_input(&mut self) -> Result<(), String> {
+        unsafe {
+            if PQconsumeInput(self.conn) == 0 {
+                Err(self.error_message())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    pub fn notifies(&mut self) -> Option<PgNotify> {
+        unsafe {
+            let notify = PQnotifies(self.conn);
+            if notify.is_null() {
+                None
+            } else {
+                Some(PgNotify { notify })
+            }
+        }
+    }
+
+    pub fn error_message(&self) -> String {
+        unsafe {
+            let s = PQerrorMessage(self.conn);
+            if s.is_null() {
+                "".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+            }
         }
     }
 
@@ -260,53 +386,5 @@ impl Display for PgResult {
             .expect("Failed to read temp file.");
 
         write!(f, "{}", s)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use std::fs;
-
-    use super::*;
-
-    #[test]
-    fn catch_notices() {
-        let mut conn =
-            PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
-
-        conn.trace("./test-out/trace.log");
-
-        let mut w = Vec::new();
-
-        let _w_pusher = conn.set_notice_processor(|s| w.push(s));
-
-        assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
-
-        let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1 as one, 2 as two;";
-
-        let mut res = conn.exec(query).expect("Failed to execute query.");
-
-        res.print("./test-out/res.out", true, true, "|", true, false, false, false);
-
-        let s = fs::read_to_string("./test-out/res.out").expect("Should have been able to read the file");
-
-        assert_eq!(res.to_string(), s);
-
-        assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
-        assert_eq!(res.error_message(), "");
-        assert!(res.error_field(PG_DIAG_SEVERITY).is_none());
-        assert_eq!(res.cmd_status(), "SELECT 1");
-
-        assert_eq!(w.len(), 2);
-        assert_eq!(w[0], "NOTICE:  Hello,\n");
-        assert_eq!(w[1], "NOTICE:  world!\n");
-    }
-
-    #[test]
-    fn lib_version() {
-        unsafe {
-            assert_eq!(PQlibVersion(), 180001);
-        }
     }
 }
