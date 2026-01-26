@@ -5,6 +5,8 @@ use std::{
     io::{Read, Seek},
     os::raw::{c_char, c_void},
     ptr::null_mut,
+    sync::Arc,
+    thread::{self, JoinHandle},
 };
 
 use std::fmt::Debug;
@@ -269,6 +271,45 @@ impl PgConn {
             b
         }
     }
+
+    // pub fn listen<F, T>(&mut self, channel: &str, proc: F) -> JoinHandle<Vec<T>>
+    // where
+    //     F: FnMut(PgNotify) -> T + Send + Sync + 'static,
+    //     T: Send + Sync + 'static,
+    // {
+    //     let mut f = Arc::new(proc);
+    //     thread::spawn(move || {
+    //         let mut conn = PgConn::connect_db_env_vars()
+    //             .expect("Failed to create PGconn from connection string.");
+
+    //         assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    //         {
+    //             let res = conn.exec("LISTEN TBL2").expect("Failed to execute LISTEN.");
+    //             assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+    //         }
+
+    //         let mut recvs = Vec::new();
+
+    //         for _ in 0..5 {
+    //             match conn.socket().poll(true, false, Some(10.0)) {
+    //                 Ok(()) => {
+    //                     conn.consume_input().expect("Failed to consume input.");
+
+    //                     while let Some(notify) = conn.notifies() {
+    //                         let t = f(notify);
+    //                         recvs.push(t);
+
+    //                         conn.consume_input().expect("Failed to consume input.");
+    //                     }
+    //                 }
+    //                 Err(_e) => break,
+    //             }
+    //         }
+
+    //         recvs
+    //     })
+    // }
 }
 
 impl PgResult {

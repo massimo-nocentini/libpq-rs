@@ -87,7 +87,7 @@ fn listen_notify() {
                         conn.consume_input().expect("Failed to consume input.");
                     }
                 }
-                Err(e) => panic!("Poll failed: {:?}", e),
+                Err(_e) => break,
             }
         }
 
