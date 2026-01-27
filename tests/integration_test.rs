@@ -1,52 +1,10 @@
 use std::{fs, ops::ControlFlow, thread};
 
 use libpq::{
-    ConnStatusType_CONNECTION_OK, ExecStatusType_PGRES_COMMAND_OK, ExecStatusType_PGRES_TUPLES_OK,
-    PG_DIAG_SEVERITY, PQlibVersion, PgConn,
+    ConnStatusType_CONNECTION_OK, ExecStatusType_PGRES_COMMAND_OK,
+    ExecStatusType_PGRES_FATAL_ERROR, ExecStatusType_PGRES_TUPLES_OK, PG_DIAG_SEVERITY,
+    PQlibVersion, PgConn,
 };
-
-#[test]
-fn catch_notices() {
-    let mut conn =
-        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
-
-    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
-
-    conn.trace("./test-out/trace.log");
-
-    let mut w = Vec::new();
-
-    let _w_pusher = conn.set_notice_processor(|s| w.push(s));
-
-    let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1 as one, 2 as two;";
-
-    let mut res = conn.exec(query).expect("Failed to execute query.");
-
-    res.print(
-        "./test-out/res.out",
-        true,
-        true,
-        "|",
-        true,
-        false,
-        false,
-        false,
-    );
-
-    let s =
-        fs::read_to_string("./test-out/res.out").expect("Should have been able to read the file");
-
-    assert_eq!(res.to_string(), s);
-
-    assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
-    assert_eq!(res.error_message(), "");
-    assert!(res.error_field(PG_DIAG_SEVERITY).is_none());
-    assert_eq!(res.cmd_status(), "SELECT 1");
-
-    assert_eq!(w.len(), 2);
-    assert_eq!(w[0], "NOTICE:  Hello,\n");
-    assert_eq!(w[1], "NOTICE:  world!\n");
-}
 
 #[test]
 fn lib_version() {
@@ -155,6 +113,50 @@ fn listen_notify() {
     assert_eq!(recvs, vec!["tbl2", "tbl2", "tbl2", "tbl2", "tbl2"]);
 }
 
+/// ## Test: `listen_notify_api`
+///
+/// Verifies the higher-level `PgConn::listen` API by exercising PostgreSQL `LISTEN/NOTIFY`
+/// end-to-end.
+///
+/// Unlike `listen_notify` (which manually polls the socket and drains `conn.notifies()`), this test
+/// delegates the waiting/consumption loop to `PgConn::listen`.
+///
+/// ### What it sets up
+///
+/// - **Listener thread**
+///   - Connects via `PgConn::connect_db_env_vars()`.
+///   - Asserts the connection is OK: `ConnStatusType_CONNECTION_OK`.
+///   - Executes `LISTEN TBL3` and asserts `ExecStatusType_PGRES_COMMAND_OK`.
+///   - Calls `conn.listen(Some(1.0), callback)` to collect notifications.
+///
+/// - **Main thread (sender)**
+///   - Sleeps `100ms` to give the listener time to subscribe.
+///   - Connects via `PgConn::connect_db_env_vars()` and checks status.
+///   - Executes `NOTIFY TBL3` **five times**, asserting `PGRES_COMMAND_OK` each time.
+///
+/// ### How notifications are received
+///
+/// The listener thread calls:
+///
+/// - `conn.listen(Some(1.0), |_i, notify| ControlFlow::Continue(Some(notify.relname())))`
+///
+/// Where:
+///
+/// - `Some(1.0)` is the poll/timeout interval (seconds) used by the listening loop.
+/// - The callback returns `ControlFlow::Continue(Some(value))` to:
+///   - keep listening, and
+///   - append `value` (here, `notify.relname()`) to the collected results.
+///
+/// ### Final assertions
+///
+/// After joining the listener thread:
+///
+/// - `recvs.len() == 5`
+/// - `recvs == vec!["tbl3", "tbl3", "tbl3", "tbl3", "tbl3"]`
+///
+/// ### Notes
+///
+/// PostgreSQL folds unquoted identifiers to lowercase, so `TBL3` is received as `"tbl3"`.
 #[test]
 fn listen_notify_api() {
     let handle = thread::spawn(|| {
@@ -163,12 +165,10 @@ fn listen_notify_api() {
 
         assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
-        {
-            let res = conn.exec("LISTEN TBL3").expect("Failed to execute LISTEN.");
-            assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
-        }
+        let res = conn.listen("TBL3").expect("Failed to execute LISTEN.");
+        assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
-        conn.listen(Some(1.0), |_i, notify| {
+        conn.listen_loop(Some(1.0), |_i, notify| {
             ControlFlow::Continue(Some(notify.relname()))
         })
     });
@@ -178,13 +178,15 @@ fn listen_notify_api() {
 
     // Now send some NOTIFY messages.
 
-    let conn =
+    let mut conn =
         PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
 
     assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
     for _ in 0..5 {
-        let res = conn.exec("NOTIFY TBL3").expect("Failed to execute NOTIFY.");
+        let res = conn
+            .notify("TBL3", None)
+            .expect("Failed to execute NOTIFY.");
         assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
     }
 
@@ -192,4 +194,127 @@ fn listen_notify_api() {
 
     assert_eq!(recvs.len(), 5);
     assert_eq!(recvs, vec!["tbl3", "tbl3", "tbl3", "tbl3", "tbl3"]);
+}
+
+/// ## Test: `catch_notices`
+///
+/// Verifies that **server NOTICE messages are captured** via `PgConn::set_notice_processor`,
+/// and that query results can be printed and round-tripped back into a string representation.
+///
+/// ### What it sets up
+///
+/// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
+/// - Enables libpq tracing to `./test-out/trace.log`.
+/// - Installs a notice processor callback that pushes notice strings into a local `Vec<String>`.
+///
+/// ### What it executes
+///
+/// Runs a query that:
+///
+/// - emits two server notices (`raise notice 'Hello,';` and `raise notice 'world!';`), and
+/// - returns a small result set (`select 1 as one, 2 as two;`).
+///
+/// ### Output / formatting checks
+///
+/// - Prints the result to `./test-out/res.out` using `res.print(...)`.
+/// - Reads the file back and asserts `res.to_string()` matches the printed output.
+///
+/// ### Result assertions
+///
+/// - `res.status() == ExecStatusType_PGRES_TUPLES_OK`
+/// - `res.error_message() == ""`
+/// - `res.error_field(PG_DIAG_SEVERITY).is_none()`
+/// - `res.cmd_status() == "SELECT 1"`
+///
+/// ### Notice assertions
+///
+/// Confirms two notices were captured, in order:
+///
+/// - `"NOTICE:  Hello,\n"`
+/// - `"NOTICE:  world!\n"`
+#[test]
+fn catch_notices() {
+    let mut conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    conn.trace("./test-out/trace.log");
+
+    let mut w = Vec::new();
+
+    let _w_pusher = conn.set_notice_processor(|s| w.push(s));
+
+    let query = "do $$ begin raise notice 'Hello,'; raise notice 'world!'; end $$; select 1 as one, 2 as two;";
+
+    let mut res = conn.exec(query).expect("Failed to execute query.");
+
+    res.print(
+        "./test-out/res.out",
+        true,
+        true,
+        "|",
+        true,
+        false,
+        false,
+        false,
+    );
+
+    let s =
+        fs::read_to_string("./test-out/res.out").expect("Should have been able to read the file");
+
+    assert_eq!(res.to_string(), s);
+
+    assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+    assert_eq!(res.error_message(), "");
+    assert!(res.error_field(PG_DIAG_SEVERITY).is_none());
+    assert_eq!(res.cmd_status(), "SELECT 1");
+
+    assert_eq!(w.len(), 2);
+    assert_eq!(w[0], "NOTICE:  Hello,\n");
+    assert_eq!(w[1], "NOTICE:  world!\n");
+}
+
+/// ## Test: `select_from_non_existing_table`
+///
+/// Verifies error handling when executing a query against a **non-existent relation**.
+///
+/// ### What it does
+///
+/// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
+/// - Executes:
+///   - `select * from this_table_does_not_exist;`
+///
+/// ### Assertions
+///
+/// - The `PgResult` error message matches the expected PostgreSQL error text (including caret line).
+/// - The connection-level `conn.error_message()` matches the same text.
+/// - The result status is `ExecStatusType_PGRES_FATAL_ERROR`.
+#[test]
+fn select_from_non_existing_table() {
+    let conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    let query = "select * from this_table_does_not_exist;";
+    let res = conn.exec(query).expect("Failed to execute query.");
+
+    assert_eq!(
+        "ERROR:  relation \"this_table_does_not_exist\" does not exist
+LINE 1: select * from this_table_does_not_exist;
+                      ^
+",
+        res.error_message()
+    );
+
+    assert_eq!(
+        "ERROR:  relation \"this_table_does_not_exist\" does not exist
+LINE 1: select * from this_table_does_not_exist;
+                      ^
+",
+        conn.error_message()
+    );
+
+    assert_eq!(res.status(), ExecStatusType_PGRES_FATAL_ERROR);
 }

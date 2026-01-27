@@ -203,6 +203,19 @@ impl PgConn {
         }
     }
 
+    pub fn notify(&mut self, channel: &str, payload: Option<&str>) -> Result<PgResult, NulError> {
+        let query = match payload {
+            Some(p) => format!("NOTIFY {}, '{}';", channel, p),
+            None => format!("NOTIFY {};", channel),
+        };
+        self.exec(&query)
+    }
+
+    pub fn listen(&mut self, channel: &str) -> Result<PgResult, NulError> {
+        let query = format!("LISTEN {};", channel);
+        self.exec(&query)
+    }
+
     ///
     /// A callback function to receive notices from the server.
     /// https://stackoverflow.com/questions/24191249/working-with-c-void-in-an-ffi
@@ -264,7 +277,7 @@ impl PgConn {
         }
     }
 
-    pub fn listen<F, T>(&mut self, timeout_sec: Option<f64>, proc: F) -> Vec<T>
+    pub fn listen_loop<F, T>(&mut self, timeout_sec: Option<f64>, proc: F) -> Vec<T>
     where
         F: Fn(usize, PgNotify) -> ControlFlow<(), Option<T>>,
     {
