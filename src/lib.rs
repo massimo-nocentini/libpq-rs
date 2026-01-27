@@ -340,6 +340,24 @@ impl PgResult {
         }
     }
 
+    pub fn get_value<T>(&self, row: i32, col: i32) -> Option<T>
+    where
+        T: std::str::FromStr,
+    {
+        unsafe {
+            let s = PQgetvalue(self.res, row, col);
+            if s.is_null() {
+                None
+            } else {
+                let s = std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned();
+                match s.parse::<T>() {
+                    Ok(v) => Some(v),
+                    Err(_) => None,
+                }
+            }
+        }
+    }
+
     /// Print the result to a file.
     /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQPRINT
     pub fn print(
@@ -383,7 +401,7 @@ impl PgResult {
 
     /// Get the value at the specified row and column.
     /// See also [PQgetvalue](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQGETVALUE).
-    pub fn get_value(&self, row: i32, col: i32) -> String {
+    pub fn get_value_raw(&self, row: i32, col: i32) -> String {
         unsafe {
             let s = PQgetvalue(self.res, row, col);
             if s.is_null() {
