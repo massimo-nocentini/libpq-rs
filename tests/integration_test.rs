@@ -55,9 +55,49 @@ fn lib_version() {
     }
 }
 
-/// Test for LISTEN/NOTIFY functionality.
+/// ## Test: `listen_notify`
 ///
-/// https://www.postgresql.org/docs/current/libpq-example.html#LIBPQ-EXAMPLE-2
+/// Verifies that **PostgreSQL `LISTEN/NOTIFY` notifications are delivered and can be consumed**
+/// through `libpq-rs`. Based on [Example 32.2](https://www.postgresql.org/docs/current/libpq-example.html#LIBPQ-EXAMPLE-2).
+///
+/// ### What it sets up
+///
+/// - **Listener thread**
+///   - Connects via `PgConn::connect_db_env_vars()`.
+///   - Asserts the connection is OK: `ConnStatusType_CONNECTION_OK`.
+///   - Executes `LISTEN TBL2` and asserts `ExecStatusType_PGRES_COMMAND_OK`.
+///
+/// - **Main thread (sender)**
+///   - Sleeps `100ms` to give the listener time to subscribe.
+///   - Connects via `PgConn::connect_db_env_vars()` and checks status.
+///   - Executes `NOTIFY TBL2` **five times**, asserting `PGRES_COMMAND_OK` each time.
+///
+/// ### How notifications are received
+///
+/// In the listener thread:
+///
+/// - Loops up to 5 times.
+/// - Each iteration:
+///   1. Waits for the socket to become readable with
+///      `conn.socket().poll(true, false, Some(10.0))` (10s timeout).
+///   2. On readiness:
+///      - Calls `conn.consume_input()` to read data into libpq.
+///      - Drains queued notifications via `while let Some(notify) = conn.notifies() { ... }`.
+///      - Asserts for each notification:
+///        - `notify.relname() == "tbl2"`
+///        - `notify.extra() == ""` (no payload)
+///      - Pushes `notify.relname()` into `recvs`.
+///
+/// ### Final assertions
+///
+/// After joining the listener thread:
+///
+/// - `recvs.len() == 5`
+/// - `recvs == vec!["tbl2", "tbl2", "tbl2", "tbl2", "tbl2"]`
+///
+/// ### Notes
+///
+/// PostgreSQL folds unquoted identifiers to lowercase, so `TBL2` is received as `"tbl2"`.
 #[test]
 fn listen_notify() {
     let handle = thread::spawn(|| {
@@ -129,7 +169,7 @@ fn listen_notify_api() {
         }
 
         conn.listen(Some(1.0), |_i, notify| {
-            ControlFlow::Continue(notify.relname())
+            ControlFlow::Continue(Some(notify.relname()))
         })
     });
 

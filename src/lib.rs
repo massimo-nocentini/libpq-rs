@@ -5,8 +5,6 @@ use std::{
     ops::ControlFlow,
     os::raw::{c_char, c_void},
     ptr::null_mut,
-    sync::Arc,
-    thread::{self, JoinHandle},
 };
 
 use std::fmt::Debug;
@@ -25,15 +23,6 @@ pub enum PgSocketPollResult {
 }
 
 impl Display for PgSocketPollResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PgSocketPollResult::Timeout => write!(f, "Timeout"),
-            PgSocketPollResult::Error(s) => write!(f, "Error: {}", s),
-        }
-    }
-}
-
-impl Debug for PgSocketPollResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PgSocketPollResult::Timeout => write!(f, "Timeout"),
@@ -277,7 +266,7 @@ impl PgConn {
 
     pub fn listen<F, T>(&mut self, timeout_sec: Option<f64>, proc: F) -> Vec<T>
     where
-        F: Fn(usize, PgNotify) -> ControlFlow<(), T>,
+        F: Fn(usize, PgNotify) -> ControlFlow<(), Option<T>>,
     {
         let mut recvs = Vec::new();
 
@@ -290,10 +279,11 @@ impl PgConn {
 
                     while let Some(notify) = self.notifies() {
                         match proc(count, notify) {
-                            ControlFlow::Continue(p) => recvs.push(p),
+                            ControlFlow::Continue(Some(p)) => recvs.push(p),
                             ControlFlow::Break(()) => {
                                 break;
                             }
+                            _ => {} // Do nothing
                         }
                         self.consume_input().expect("Failed to consume input.");
                         count += 1;
