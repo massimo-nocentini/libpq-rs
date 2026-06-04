@@ -358,6 +358,10 @@ impl PgResult {
         }
     }
 
+    pub fn ntuples(&self) -> i32 {
+        unsafe { PQntuples(self.res) }
+    }
+
     /// Print the result to a file.
     /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQPRINT
     pub fn print(
