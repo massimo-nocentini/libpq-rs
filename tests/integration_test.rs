@@ -9,7 +9,7 @@ use libpq::{
 #[test]
 fn lib_version() {
     unsafe {
-        assert_eq!(PQlibVersion(), 180001);
+        assert_eq!(PQlibVersion(), 180004);
     }
 }
 
