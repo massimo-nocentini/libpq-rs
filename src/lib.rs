@@ -4,7 +4,7 @@ use std::{
     io::{Read, Seek},
     ops::ControlFlow,
     os::raw::{c_char, c_void},
-    ptr::null_mut,
+    ptr::{null, null_mut},
 };
 
 use std::fmt::Debug;
@@ -145,6 +145,141 @@ impl PgConn {
     pub fn exec_file(&self, file_path: &str) -> Result<PgResult, NulError> {
         let content = std::fs::read_to_string(file_path).expect("Failed to read file.");
         self.exec(&content)
+    }
+
+    /// Submit a command along with parameters, and wait for the result. Parameters are
+    /// passed as text; a `None` value is sent as SQL `NULL`. `param_types` may be shorter
+    /// than `param_values` (or empty) to let the server infer unspecified types.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQEXECPARAMS).
+    pub fn exec_params(
+        &self,
+        query: &str,
+        param_types: &[Oid],
+        param_values: &[Option<&str>],
+    ) -> Result<PgResult, NulError> {
+        unsafe {
+            let c_query = CString::new(query)?;
+
+            let c_params = param_values
+                .iter()
+                .map(|v| v.map(CString::new).transpose())
+                .collect::<Result<Vec<_>, NulError>>()?;
+
+            let ptrs: Vec<*const c_char> = c_params
+                .iter()
+                .map(|v| match v {
+                    Some(c) => c.as_ptr(),
+                    None => null(),
+                })
+                .collect();
+
+            let res = PQexecParams(
+                self.conn,
+                c_query.as_ptr(),
+                ptrs.len() as i32,
+                param_types.as_ptr(),
+                ptrs.as_ptr(),
+                null(),
+                null(),
+                0,
+            );
+
+            Ok(PgResult { res })
+        }
+    }
+
+    /// Submit a request to create a prepared statement, and wait for completion.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQPREPARE).
+    pub fn prepare(
+        &self,
+        stmt_name: &str,
+        query: &str,
+        param_types: &[Oid],
+    ) -> Result<PgResult, NulError> {
+        unsafe {
+            let c_stmt_name = CString::new(stmt_name)?;
+            let c_query = CString::new(query)?;
+
+            let res = PQprepare(
+                self.conn,
+                c_stmt_name.as_ptr(),
+                c_query.as_ptr(),
+                param_types.len() as i32,
+                param_types.as_ptr(),
+            );
+
+            Ok(PgResult { res })
+        }
+    }
+
+    /// Send a request to execute a prepared statement with given parameters, and wait for
+    /// the result. Parameters are passed as text; a `None` value is sent as SQL `NULL`.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-EXEC-PQEXECPREPARED).
+    pub fn exec_prepared(
+        &self,
+        stmt_name: &str,
+        param_values: &[Option<&str>],
+    ) -> Result<PgResult, NulError> {
+        unsafe {
+            let c_stmt_name = CString::new(stmt_name)?;
+
+            let c_params = param_values
+                .iter()
+                .map(|v| v.map(CString::new).transpose())
+                .collect::<Result<Vec<_>, NulError>>()?;
+
+            let ptrs: Vec<*const c_char> = c_params
+                .iter()
+                .map(|v| match v {
+                    Some(c) => c.as_ptr(),
+                    None => null(),
+                })
+                .collect();
+
+            let res = PQexecPrepared(
+                self.conn,
+                c_stmt_name.as_ptr(),
+                ptrs.len() as i32,
+                ptrs.as_ptr(),
+                null(),
+                null(),
+                0,
+            );
+
+            Ok(PgResult { res })
+        }
+    }
+
+    /// Submit a request to obtain information about the specified prepared statement, and
+    /// wait for completion.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQDESCRIBEPREPARED).
+    pub fn describe_prepared(&self, stmt_name: &str) -> Result<PgResult, NulError> {
+        unsafe {
+            let c_stmt_name = CString::new(stmt_name)?;
+            let res = PQdescribePrepared(self.conn, c_stmt_name.as_ptr());
+            Ok(PgResult { res })
+        }
+    }
+
+    /// Submit a request to obtain information about the specified portal, and wait for
+    /// completion.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQDESCRIBEPORTAL).
+    pub fn describe_portal(&self, portal_name: &str) -> Result<PgResult, NulError> {
+        unsafe {
+            let c_portal_name = CString::new(portal_name)?;
+            let res = PQdescribePortal(self.conn, c_portal_name.as_ptr());
+            Ok(PgResult { res })
+        }
+    }
+
+    /// Submit a request to close the specified prepared statement, and wait for completion.
+    /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQCLOSEPREPARED).
+    pub fn close_prepared(&self, stmt_name: &str) -> Result<PgResult, NulError> {
+        unsafe {
+            let c_stmt_name = CString::new(stmt_name)?;
+            let res = PQclosePrepared(self.conn, c_stmt_name.as_ptr());
+            Ok(PgResult { res })
+        }
     }
 
     pub fn trace(&mut self, file: &str) {

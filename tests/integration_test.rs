@@ -2,9 +2,13 @@ use std::{fs, ops::ControlFlow, thread};
 
 use libpq::{
     ConnStatusType_CONNECTION_OK, ExecStatusType_PGRES_COMMAND_OK,
-    ExecStatusType_PGRES_FATAL_ERROR, ExecStatusType_PGRES_TUPLES_OK, PG_DIAG_SEVERITY,
+    ExecStatusType_PGRES_FATAL_ERROR, ExecStatusType_PGRES_TUPLES_OK, Oid, PG_DIAG_SEVERITY,
     PQlibVersion, PgConn,
 };
+
+/// OID of the built-in `int4` type, used to pin parameter types in `PQexecParams`/`PQprepare`
+/// calls below. See the [`pg_type` catalog](https://www.postgresql.org/docs/current/catalog-pg-type.html).
+const INT4OID: Oid = 23;
 
 #[test]
 fn lib_version() {
@@ -317,4 +321,164 @@ LINE 1: select * from this_table_does_not_exist;
     );
 
     assert_eq!(res.status(), ExecStatusType_PGRES_FATAL_ERROR);
+}
+
+/// ## Test: `exec_params_infers_types`
+///
+/// Verifies `PgConn::exec_params` when parameter types are left for the server to infer
+/// (`param_types` is empty).
+///
+/// ### What it does
+///
+/// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
+/// - Executes `select $1::int4 + $2::int4 as sum` with `param_types: &[]` and
+///   `param_values: &[Some("2"), Some("3")]`.
+///
+/// ### Assertions
+///
+/// - `res.status() == ExecStatusType_PGRES_TUPLES_OK`
+/// - `res.get_value::<i32>(0, 0) == Some(5)`
+#[test]
+fn exec_params_infers_types() {
+    let conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    let query = "select $1::int4 + $2::int4 as sum";
+    let res = conn
+        .exec_params(query, &[], &[Some("2"), Some("3")])
+        .expect("Failed to execute query.");
+
+    assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+    assert_eq!(res.get_value::<i32>(0, 0), Some(5));
+}
+
+/// ## Test: `exec_params_with_explicit_types_and_null`
+///
+/// Verifies `PgConn::exec_params` when parameter types are pinned explicitly via `param_types`,
+/// and that a `None` parameter value is sent as SQL `NULL`.
+///
+/// ### What it does
+///
+/// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
+/// - Executes `select $1::int4 as val, $2::int4 is null as is_null` with
+///   `param_types: &[INT4OID, INT4OID]` and `param_values: &[Some("42"), None]`.
+///
+/// ### Assertions
+///
+/// - `res.status() == ExecStatusType_PGRES_TUPLES_OK`
+/// - `res.get_value::<i32>(0, 0) == Some(42)`
+/// - `res.get_value_raw(0, 1) == "t"` (the `None` parameter arrived as `NULL`; Postgres
+///   renders booleans as `t`/`f` text, not `true`/`false`)
+#[test]
+fn exec_params_with_explicit_types_and_null() {
+    let conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    let query = "select $1::int4 as val, $2::int4 is null as is_null";
+    let res = conn
+        .exec_params(query, &[INT4OID, INT4OID], &[Some("42"), None])
+        .expect("Failed to execute query.");
+
+    assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+    assert_eq!(res.get_value::<i32>(0, 0), Some(42));
+    assert_eq!(res.get_value_raw(0, 1), "t");
+}
+
+/// ## Test: `prepare_exec_describe_close_prepared`
+///
+/// Verifies the full prepared-statement lifecycle: `PgConn::prepare`,
+/// `PgConn::exec_prepared`, `PgConn::describe_prepared`, and `PgConn::close_prepared`.
+///
+/// ### What it does
+///
+/// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
+/// - Prepares `stmt_sum` for `select $1::int4 + $2::int4 as sum` and asserts
+///   `ExecStatusType_PGRES_COMMAND_OK`.
+/// - Executes it via `exec_prepared` with `&[Some("10"), Some("20")]` and asserts the
+///   computed sum is `30`.
+/// - Describes it via `describe_prepared` and asserts `ExecStatusType_PGRES_COMMAND_OK`.
+/// - Closes it via `close_prepared` and asserts `ExecStatusType_PGRES_COMMAND_OK`.
+///
+/// ### Notes
+///
+/// After closing, re-running `exec_prepared` against the same (now-gone) statement name
+/// fails with `ExecStatusType_PGRES_FATAL_ERROR`, confirming the close actually took effect.
+#[test]
+fn prepare_exec_describe_close_prepared() {
+    let conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    let stmt_name = "stmt_sum";
+    let query = "select $1::int4 + $2::int4 as sum";
+
+    let res = conn
+        .prepare(stmt_name, query, &[])
+        .expect("Failed to prepare statement.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+
+    let res = conn
+        .exec_prepared(stmt_name, &[Some("10"), Some("20")])
+        .expect("Failed to execute prepared statement.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+    assert_eq!(res.get_value::<i32>(0, 0), Some(30));
+
+    let res = conn
+        .describe_prepared(stmt_name)
+        .expect("Failed to describe prepared statement.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+
+    let res = conn
+        .close_prepared(stmt_name)
+        .expect("Failed to close prepared statement.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+
+    let res = conn
+        .exec_prepared(stmt_name, &[Some("10"), Some("20")])
+        .expect("Failed to execute exec_prepared call.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_FATAL_ERROR);
+}
+
+/// ## Test: `describe_portal_test`
+///
+/// Verifies `PgConn::describe_portal` against a portal opened with `DECLARE ... CURSOR`.
+///
+/// ### What it does
+///
+/// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
+/// - Runs `BEGIN`, then `DECLARE my_cursor CURSOR FOR select 1 as one, 'foo'::text as two`.
+/// - Calls `describe_portal("my_cursor")`.
+/// - Runs `COMMIT` (which implicitly closes the cursor/portal).
+///
+/// ### Assertions
+///
+/// - Both `BEGIN` and `DECLARE` return `ExecStatusType_PGRES_COMMAND_OK`.
+/// - `describe_portal` returns `ExecStatusType_PGRES_COMMAND_OK`.
+#[test]
+fn describe_portal_test() {
+    let conn =
+        PgConn::connect_db_env_vars().expect("Failed to create PGconn from connection string.");
+
+    assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
+
+    let res = conn.exec("BEGIN").expect("Failed to execute BEGIN.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+
+    let res = conn
+        .exec("DECLARE my_cursor CURSOR FOR select 1 as one, 'foo'::text as two")
+        .expect("Failed to execute DECLARE.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+
+    let res = conn
+        .describe_portal("my_cursor")
+        .expect("Failed to describe portal.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
+
+    let res = conn.exec("COMMIT").expect("Failed to execute COMMIT.");
+    assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 }
