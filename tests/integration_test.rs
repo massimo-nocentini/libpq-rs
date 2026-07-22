@@ -2,13 +2,9 @@ use std::{fs, ops::ControlFlow, thread};
 
 use libpq::{
     ConnStatusType_CONNECTION_OK, ExecStatusType_PGRES_COMMAND_OK,
-    ExecStatusType_PGRES_FATAL_ERROR, ExecStatusType_PGRES_TUPLES_OK, Oid, PG_DIAG_SEVERITY,
+    ExecStatusType_PGRES_FATAL_ERROR, ExecStatusType_PGRES_TUPLES_OK, PG_DIAG_SEVERITY,
     PQlibVersion, PgConn,
 };
-
-/// OID of the built-in `int4` type, used to pin parameter types in `PQexecParams`/`PQprepare`
-/// calls below. See the [`pg_type` catalog](https://www.postgresql.org/docs/current/catalog-pg-type.html).
-const INT4OID: Oid = 23;
 
 #[test]
 fn lib_version() {
@@ -347,7 +343,7 @@ fn exec_params_infers_types() {
 
     let query = "select $1::int4 + $2::int4 as sum";
     let res = conn
-        .exec_params(query, &[], &[Some("2"), Some("3")])
+        .exec_params(query, &[Some("2"), Some("3")])
         .expect("Failed to execute query.");
 
     assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
@@ -363,14 +359,14 @@ fn exec_params_infers_types() {
 ///
 /// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
 /// - Executes `select $1::int4 as val, $2::int4 is null as is_null` with
-///   `param_types: &[INT4OID, INT4OID]` and `param_values: &[Some("42"), None]`.
+/// `param_types: &[INT4OID, INT4OID]` and `param_values: &[Some("42"), None]`.
 ///
 /// ### Assertions
 ///
 /// - `res.status() == ExecStatusType_PGRES_TUPLES_OK`
 /// - `res.get_value::<i32>(0, 0) == Some(42)`
 /// - `res.get_value_raw(0, 1) == "t"` (the `None` parameter arrived as `NULL`; Postgres
-///   renders booleans as `t`/`f` text, not `true`/`false`)
+/// renders booleans as `t`/`f` text, not `true`/`false`)
 #[test]
 fn exec_params_with_explicit_types_and_null() {
     let conn =
@@ -379,12 +375,15 @@ fn exec_params_with_explicit_types_and_null() {
     assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
     let query = "select $1::int4 as val, $2::int4 is null as is_null";
+
     let res = conn
-        .exec_params(query, &[INT4OID, INT4OID], &[Some("42"), None])
+        .exec_params(query, &[Some("42"), None])
         .expect("Failed to execute query.");
 
     assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+
     assert_eq!(res.get_value::<i32>(0, 0), Some(42));
+
     assert_eq!(res.get_value_raw(0, 1), "t");
 }
 
@@ -397,9 +396,9 @@ fn exec_params_with_explicit_types_and_null() {
 ///
 /// - Connects via `PgConn::connect_db_env_vars()` and asserts `ConnStatusType_CONNECTION_OK`.
 /// - Prepares `stmt_sum` for `select $1::int4 + $2::int4 as sum` and asserts
-///   `ExecStatusType_PGRES_COMMAND_OK`.
+/// `ExecStatusType_PGRES_COMMAND_OK`.
 /// - Executes it via `exec_prepared` with `&[Some("10"), Some("20")]` and asserts the
-///   computed sum is `30`.
+/// computed sum is `30`.
 /// - Describes it via `describe_prepared` and asserts `ExecStatusType_PGRES_COMMAND_OK`.
 /// - Closes it via `close_prepared` and asserts `ExecStatusType_PGRES_COMMAND_OK`.
 ///
@@ -415,32 +414,39 @@ fn prepare_exec_describe_close_prepared() {
     assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
     let stmt_name = "stmt_sum";
+
     let query = "select $1::int4 + $2::int4 as sum";
 
     let res = conn
-        .prepare(stmt_name, query, &[])
+        .prepare(stmt_name, query)
         .expect("Failed to prepare statement.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
     let res = conn
         .exec_prepared(stmt_name, &[Some("10"), Some("20")])
         .expect("Failed to execute prepared statement.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_TUPLES_OK);
+
     assert_eq!(res.get_value::<i32>(0, 0), Some(30));
 
     let res = conn
         .describe_prepared(stmt_name)
         .expect("Failed to describe prepared statement.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
     let res = conn
         .close_prepared(stmt_name)
         .expect("Failed to close prepared statement.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
     let res = conn
         .exec_prepared(stmt_name, &[Some("10"), Some("20")])
         .expect("Failed to execute exec_prepared call.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_FATAL_ERROR);
 }
 
@@ -467,18 +473,22 @@ fn describe_portal_test() {
     assert_eq!(conn.status(), ConnStatusType_CONNECTION_OK);
 
     let res = conn.exec("BEGIN").expect("Failed to execute BEGIN.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
     let res = conn
         .exec("DECLARE my_cursor CURSOR FOR select 1 as one, 'foo'::text as two")
         .expect("Failed to execute DECLARE.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
     let res = conn
         .describe_portal("my_cursor")
         .expect("Failed to describe portal.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 
     let res = conn.exec("COMMIT").expect("Failed to execute COMMIT.");
+
     assert_eq!(res.status(), ExecStatusType_PGRES_COMMAND_OK);
 }

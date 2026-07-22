@@ -154,7 +154,6 @@ impl PgConn {
     pub fn exec_params(
         &self,
         query: &str,
-        param_types: &[Oid],
         param_values: &[Option<&str>],
     ) -> Result<PgResult, NulError> {
         unsafe {
@@ -177,7 +176,7 @@ impl PgConn {
                 self.conn,
                 c_query.as_ptr(),
                 ptrs.len() as i32,
-                param_types.as_ptr(),
+                null(),
                 ptrs.as_ptr(),
                 null(),
                 null(),
@@ -190,23 +189,12 @@ impl PgConn {
 
     /// Submit a request to create a prepared statement, and wait for completion.
     /// See the [official doc](https://www.postgresql.org/docs/current/libpq-exec.html#LIBPQ-PQPREPARE).
-    pub fn prepare(
-        &self,
-        stmt_name: &str,
-        query: &str,
-        param_types: &[Oid],
-    ) -> Result<PgResult, NulError> {
+    pub fn prepare(&self, stmt_name: &str, query: &str) -> Result<PgResult, NulError> {
         unsafe {
             let c_stmt_name = CString::new(stmt_name)?;
             let c_query = CString::new(query)?;
 
-            let res = PQprepare(
-                self.conn,
-                c_stmt_name.as_ptr(),
-                c_query.as_ptr(),
-                param_types.len() as i32,
-                param_types.as_ptr(),
-            );
+            let res = PQprepare(self.conn, c_stmt_name.as_ptr(), c_query.as_ptr(), 0, null());
 
             Ok(PgResult { res })
         }
